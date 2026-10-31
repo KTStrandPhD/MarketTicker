@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+#runs app
+
 import sys
 from pathlib import Path
 

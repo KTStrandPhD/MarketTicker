@@ -1,3 +1,5 @@
+#Get chart data
+
 import logging
 import pandas as pd
 import yfinance as yf

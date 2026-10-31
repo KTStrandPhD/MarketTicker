@@ -6,6 +6,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from chart import TerminalChart
 from data_fetcher import TICKER_GROUPS, MarketDataFetcher
+from ai_summarizer import MarketAISummarizer  # Imported your AI Summarizer module
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -13,7 +14,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Static
 
 
 class MarketTickerApp(App):
-  """A multi-asset terminal ticker with real-time stats and historical chart view."""
+  """A multi-asset terminal ticker with real-time stats, historical chart view, and AI sentiment analysis."""
 
   CSS = """
     Screen {
@@ -46,7 +47,7 @@ class MarketTickerApp(App):
         width: 100%;
     }
     #chart-container {
-        height: 15;
+        height: 22;
         border-top: heavy $accent;
         padding: 0 1;
         background: $surface;
@@ -58,6 +59,15 @@ class MarketTickerApp(App):
     }
     #chart-view {
         color: $text;
+        height: 10;
+    }
+    #ai-summary-box {
+        color: $text;
+        background: $boost;
+        border: solid $accent;
+        padding: 0 1;
+        height: 7;
+        margin-top: 1;
     }
     """
 
@@ -84,8 +94,9 @@ class MarketTickerApp(App):
       yield DataTable(id="main-table")
 
     with Container(id="chart-container"):
-      yield Static("Select a ticker to display 1-year chart", id="chart-title")
+      yield Static("Select a ticker to display 1-year chart & AI intelligence", id="chart-title")
       yield Static("", id="chart-view")
+      yield Static("🤖 AI Intelligence: Awaiting ticker selection...", id="ai-summary-box")
 
     yield Footer()
 
@@ -145,7 +156,6 @@ class MarketTickerApp(App):
         if not rows:
           tbl.add_row("NO DATA", "0.00", "0.00%", "0")
         else:
-          # Specific sub-penny/fractional crypto assets requiring 6 decimal precision
           six_decimal_tokens = {"XRP-USD", "PYTH-USD", "XNO-USD"}
 
           for row in rows:
@@ -164,7 +174,6 @@ class MarketTickerApp(App):
                 f"{int(row['volume']):,}" if row["volume"] > 0 else "N/A"
             )
 
-            # Apply 6 decimal places for XRP, PYTH, and XNO, 2 for everything else
             if sym in six_decimal_tokens:
               formatted_price = f"{row['price']:,.6f}"
             else:
@@ -178,7 +187,8 @@ class MarketTickerApp(App):
 
     self.call_from_thread(update_ui)
 
-  def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+  def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    """Triggered automatically when navigating up/down rows in the table."""
     row_data = event.data_table.get_row(event.row_key)
     if not row_data:
       return
@@ -189,11 +199,36 @@ class MarketTickerApp(App):
 
     chart_title = self.query_one("#chart-title", Static)
     chart_view = self.query_one("#chart-view", Static)
+    ai_box = self.query_one("#ai-summary-box", Static)
 
-    chart_title.update(f"1-Year Price Chart: {symbol}")
-    chart_view.update("Fetching historical data...")
+    chart_title.update(f"1-Year Price Chart & AI Analysis: {symbol}")
+    chart_view.update("Fetching historical chart data...")
+    ai_box.update(f"[yellow]🤖 Querying Gemini (gemini-3.8-flash) for {symbol} sentiment...[/yellow]")
+
+    # Kick off background workers for both chart and AI sentiment asynchronously
+    self.fetch_and_render_chart(symbol, chart_view)
+    self.fetch_ai_sentiment_background(symbol, ai_box)
+
+  def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+    """Fallback row selected event handler."""
+    row_data = event.data_table.get_row(event.row_key)
+    if not row_data:
+      return
+
+    symbol = str(row_data[0])
+    if symbol == "NO DATA":
+      return
+
+    chart_title = self.query_one("#chart-title", Static)
+    chart_view = self.query_one("#chart-view", Static)
+    ai_box = self.query_one("#ai-summary-box", Static)
+
+    chart_title.update(f"1-Year Price Chart & AI Analysis: {symbol}")
+    chart_view.update("Fetching historical chart data...")
+    ai_box.update(f"[yellow]🤖 Querying Gemini (gemini-3.8-flash) for {symbol} sentiment...[/yellow]")
 
     self.fetch_and_render_chart(symbol, chart_view)
+    self.fetch_ai_sentiment_background(symbol, ai_box)
 
   @work(exclusive=True, thread=True)
   def fetch_and_render_chart(self, symbol: str, chart_view: Static) -> None:
@@ -201,6 +236,29 @@ class MarketTickerApp(App):
     ascii_graph = TerminalChart.render_ascii_chart(history, height=8, width=70)
     self.call_from_thread(chart_view.update, ascii_graph)
 
+  @work(exclusive=True, thread=True)
+  def fetch_ai_sentiment_background(self, symbol: str, ai_box: Static) -> None:
+    """Fetches AI sentiment summary asynchronously in a non-blocking daemon thread with caching & fallback."""
+    try:
+      if not self.is_running:
+        return
+
+      sentiment_result = MarketAISummarizer.analyze_ticker_sentiment(symbol)
+      
+      if not self.is_running:
+        return
+
+      formatted_ai = (
+          f"[bold cyan]🤖 Gemini AI Market Intelligence ({symbol}):[/bold cyan]\n"
+          f"{sentiment_result}"
+      )
+      self.call_from_thread(ai_box.update, formatted_ai)
+    except Exception as e:
+      if self.is_running:
+        self.call_from_thread(
+            ai_box.update,
+            f"[red]🤖 AI Intelligence unavailable: {str(e)}[/red]"
+        )
 
 if __name__ == "__main__":
   app = MarketTickerApp()

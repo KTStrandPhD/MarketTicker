@@ -26,7 +26,7 @@ share/python-wheels/
 MANIFEST
 
 # Virtual environments
-.env
+#.env #leaving this commented just so my free api key can be used as a demo
 .venv
 env/
 venv/
